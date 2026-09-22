@@ -178,7 +178,8 @@ async function mockRequest(url, options) {
     '/user/profile': () => mockData.user,
     '/bookings': handleBookings,
     '/orders': handleOrders,
-    '/user/tasks': handleUserTasks
+    '/user/tasks': handleUserTasks,
+    '/queues/action': handleQueueAction
   }
   
   const handler = mockHandlers[url]
@@ -261,6 +262,35 @@ function handleOrders(options) {
     }
   }
   return []
+}
+
+/**
+ * 处理现场排队叫号相关请求
+ * POST: 同步排队操作（join/call/arrive/miss/restore/seat/complete/cancel）
+ * 排队数据由前端 queueStore 维护并持久化，mock 端做基础校验后回显，
+ * 真实后端模式下由同一接口完成状态机流转。
+ */
+function handleQueueAction(options) {
+  if (options.method !== 'POST') {
+    throw new Error('排队操作仅支持 POST')
+  }
+  const body = JSON.parse(options.body || '{}')
+  const allowedOps = ['join', 'call', 'arrive', 'miss', 'restore', 'seat', 'complete', 'cancel']
+  if (!allowedOps.includes(body.op)) {
+    throw new Error('不支持的排队操作')
+  }
+  if (!body.tableId || !body.ticketNo) {
+    throw new Error('排队信息不完整')
+  }
+  logger.info('Mock queue action', { op: body.op, tableId: body.tableId, ticketNo: body.ticketNo })
+  return {
+    received: true,
+    op: body.op,
+    ticketId: body.ticketId,
+    ticketNo: body.ticketNo,
+    tableId: body.tableId,
+    serverTime: Date.now()
+  }
 }
 
 /**
@@ -498,6 +528,19 @@ export const api = {
   doTaskAction: (data) => request('/user/tasks', {
     method: 'POST',
     body: JSON.stringify(data)
+  }),
+
+  // ========== 现场排队叫号模块 ==========
+
+  /**
+   * 同步排队操作
+   * @param {string} op - join/call/arrive/miss/restore/seat/complete/cancel
+   * @param {Object} payload - { ticketId, ticketNo, tableId, ... }
+   * @returns {Promise<{success: boolean, data?: Object, error?: string}>}
+   */
+  queueAction: (op, payload) => request('/queues/action', {
+    method: 'POST',
+    body: JSON.stringify({ op, ...payload })
   })
 }
 
